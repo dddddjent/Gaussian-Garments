@@ -1,5 +1,6 @@
 import os
 import json
+from pathlib import Path
 import tqdm
 import torch
 import trimesh
@@ -20,7 +21,11 @@ def render_label_colors(label):
     return colors
 
 # load capture camera parameters: intrinsics_ori, extrinsics_ori
-def load_capture_cameras(camera_params, camera_list, image_shape):
+def load_capture_cameras(
+    camera_params: dict,
+    camera_list: list[str],
+    image_shape: tuple[int, int],
+) -> tuple[dict[str, PerspectiveCameras], RasterizationSettings]:
     # init camera_dict
     camera_dict = dict()
     # process all camera within camera_list
@@ -50,31 +55,42 @@ def load_capture_cameras(camera_params, camera_list, image_shape):
     return camera_dict, raster_settings
 
 
-def parse_scan(scan_data, source_path, only_fg=True):
+def parse_scan(
+    scan_data: trimesh.Trimesh,
+    source_path: Path,
+    only_fg: bool = True,
+) -> tuple[trimesh.Trimesh, np.ndarray] | np.ndarray:
     images_path = source_path / 'images'
     camera_ids = [f.stem for f in images_path.glob('*.png')]
+    assert camera_ids, f'No capture images found in {images_path}'
 
     camera_fn = os.path.join(source_path, 'cameras.json')
     multi_view_labels = dict()
+
+    for camera_id in camera_ids:
+        label_image_path = os.path.join(source_path, 'masks', f'{camera_id}.png.png')
+        assert os.path.isfile(label_image_path), f'Missing mask: {label_image_path}'
+        label_image = cv.imread(label_image_path)
+        assert label_image is not None and label_image.size > 0, f'Cannot load mask: {label_image_path}'
+        label_image = label_image / 255.0
+        label_value = np.zeros(label_image.shape)
+        label_value[label_image > 0.5] = 1
+        multi_view_labels[camera_id] = label_value
+
+    image_shape = multi_view_labels[camera_ids[0]].shape[:2]
+    assert all(label.shape[:2] == image_shape for label in multi_view_labels.values()), \
+        'Capture masks must all have the same height and width'
+    assert any(label.any() for label in multi_view_labels.values()), 'Capture masks contain no foreground'
 
     # load mesh ply
     th_verts = torch.tensor(scan_data.vertices, dtype=torch.float32).unsqueeze(0).cuda()
     th_faces = torch.tensor(scan_data.faces, dtype=torch.long).unsqueeze(0).cuda()
     scan_mesh = Meshes(th_verts, th_faces).cuda()
 
-    for camera_id in camera_ids:
-        label_image_path = os.path.join(source_path, 'masks', f'{camera_id}.png.png')
-        label_image = cv.imread(label_image_path) / 255.0
-        label_value = np.zeros(label_image.shape)
-        label_value[label_image > 0.5] = 1
-        multi_view_labels[camera_id] = label_value
-
 
     # # -------------------- Load Capture Cameras -------------------- # #
     # load camera_list and camera_params: 
     camera_list = camera_ids
-    # image_shape, image_mode = (4096, 3008), 'origin'
-    image_shape, image_mode = (1280, 940), 'resize'
     camera_params = json.load(open(os.path.join(camera_fn), 'r'))
     # load pytorch3d camera_agents and raster_settings
     camera_agents, raster_settings = load_capture_cameras(camera_params, camera_list, image_shape)

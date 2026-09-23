@@ -164,7 +164,7 @@ class MeshModel():
         if isinstance(o3d_body, trimesh.Trimesh):
             body = o3d_body
         else:
-            body = trimesh.Trimesh(vertices=np.array(o3d_body.vertices), faces=np.array(o3d_body.triangles))
+            body = trimesh.Trimesh(vertices=np.array(o3d_body.vertices), faces=np.array(o3d_body.triangles), process=False)
 
         self.body = body
         # Compute distances in the current timestep

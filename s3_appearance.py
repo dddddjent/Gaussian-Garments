@@ -179,9 +179,13 @@ if __name__ == "__main__":
                     _a = torch.cat([_a, _a, _a], axis=0)
                     col2 = torch.cat([_a, frame_data['normal'].cpu()], axis=1)
                     _t = torch.cat([col1, col2], axis=-1)
-                    # _t = torch.tensor(np.array(Image.fromarray(np.array(_t.permute(1,2,0), dtype=np.uint8)).resize([512, 512]))).permute(2,0,1)
-                    texture = torch.zeros([3, viewpoint_cam.original_image.shape[1], _t.shape[-1]])
-                    texture[:,78:78+_t.shape[1]] = _t
+                    # Fit the debug preview to the camera height, preserving aspect ratio.
+                    preview_height = viewpoint_cam.original_image.shape[1]
+                    preview_width = max(1, round(_t.shape[2] * preview_height / _t.shape[1]))
+                    texture = F.interpolate(
+                        _t.unsqueeze(0), size=(preview_height, preview_width),
+                        mode='bilinear', align_corners=False, antialias=True,
+                    ).squeeze(0)
 
                     # store rendering
                     _test_cam = viewpoint_cam
@@ -194,7 +198,7 @@ if __name__ == "__main__":
                     container = container.permute(1,2,0)*255
 
                     _render = stage3_path / "debug_renders" 
-                    container = Image.fromarray(np.array(container, dtype=np.byte), "RGB")
+                    container = Image.fromarray(container.clamp(0, 255).to(torch.uint8).numpy())
                     os.makedirs(_render, exist_ok=True)
                     render_path = _render / f"ep{epoch:03d}_iter{iter:06d}_{frame_data['current_seq']}_frame{frame_data['current_frame']:04d}.png"
                     container.save(render_path)
@@ -209,4 +213,3 @@ if __name__ == "__main__":
     print("\nTraining complete.")
 
         
-

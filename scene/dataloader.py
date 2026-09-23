@@ -13,6 +13,8 @@ from scipy.spatial.transform import Rotation as R
 from torch.utils.data import Dataset
 from utils.io_utils import load_masked_image, read_obj
 from tqdm import tqdm
+from utils.body_input import camera_directories, body_mesh_paths
+from utils.texture_cache import file_state, texture_cache
 
 class AvatarDataloader(Dataset):
     def __init__(self, args):
@@ -55,7 +57,7 @@ class AvatarDataloader(Dataset):
             info = {}
             # camera info
             # cam_folders = sorted(list(seq_path.glob('00*')))
-            cam_folders = sorted([path for path in seq_path.iterdir() if path.is_dir() and path.name != 'smplx'])
+            cam_folders = camera_directories(seq_path)
 
             if args.eval:
                 info['cam_names'] = [n.name for idx, n in enumerate(cam_folders) if idx % args.llffhold != 0]
@@ -116,6 +118,7 @@ class AvatarDataloader(Dataset):
 
 
             info['frame_num'] = len(info['img_names'][cam_folders[0].name])
+            info['body_mesh_paths'] = body_mesh_paths(seq_path, info['frame_num'])
             # collect info
             self.dataset_info[seq_name] = info
             self.frame_collection += [(seq_name, f, c) for f in range(info['frame_num']) for c in info['cam_names']]
@@ -159,7 +162,7 @@ class AvatarDataloader(Dataset):
 
         # load current frame mesh and bake textures
         _mesh = self.output_dir / DEFAULTS.stage2 /  data['current_seq'] / "meshes" / f"frame_{data['current_frame']:05d}.obj"
-        _body = self.data_dir / data['current_seq'] / "smplx" / f"{data['current_frame']:05d}.ply"
+        _body = info['body_mesh_paths'][frame]
 
         data['ambient'], data['normal'], data['mesh_v'] = self.get_maps(_mesh, _body)
 
@@ -180,26 +183,34 @@ class AvatarDataloader(Dataset):
         return  {"R":R, "T":T, "FoVx":FovX, "FoVy":FovY, "fx":fx, "fy":fy, "cx":cx, "cy":cy, 'colmap_id':np.nan, 'image_name':np.nan, 'uid':params['ids'],
                 "image":image.permute(2,0,1), "gt_alpha_mask":mask.unsqueeze(0), "data_device":'cpu'} 
     
-    def get_maps(self, _mesh: str, _body: str = None):
+    def get_maps(self, _mesh: Path, _body: Path) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # load current mesh
         mesh = read_obj(_mesh)
 
-        # locate texture path
-        _ambient = _mesh.parents[1] / "texture" / "ambient" / f"{_mesh.stem}.png"
-        _normal = _mesh.parents[1] / "texture" / "normal" / f"{_mesh.stem}.png"
-
-        if os.path.exists(_ambient) and os.path.exists(_normal): 
+        cycles = bpy.context.scene.cycles
+        settings = {'texture_size': self.texture_size, 'texture_margin': self.texture_margin,
+                    'blender_version': bpy.app.version_string, 'samples': cycles.samples,
+                    'seed': cycles.seed, 'use_adaptive_sampling': cycles.use_adaptive_sampling,
+                    'adaptive_threshold': cycles.adaptive_threshold,
+                    'use_denoising': cycles.use_denoising,
+                    'baker': file_state(Path(__file__))}
+        with texture_cache(_mesh, _body, settings) as (_ambient, _normal, reusable):
+            if not reusable:
+                self.bake_texture(_mesh, body_path=_body, w=self.texture_size,
+                                  h=self.texture_size, save=True)
+            # Read the saved maps on both paths so first use and reuse agree.
             ambient = np.array(Image.open(_ambient)) / 255.
             normal = np.array(Image.open(_normal)) / 255.
-        else:
-            ambient, normal = self.bake_texture(_mesh, body_path=_body, w=self.texture_size, h=self.texture_size, save=True)
 
         ambient = torch.tensor(ambient, dtype=torch.float32).unsqueeze(0)
         normal = torch.tensor(normal, dtype=torch.float32).permute(2,0,1)
         mesh_v = torch.tensor(mesh['vertices'], dtype=torch.float32)
         return ambient, normal, mesh_v
 
-    def bake_texture(self, mesh_path, body_path=None, w=512, h=512, show=False, save=False):
+    def bake_texture(
+        self, mesh_path: Path, body_path: Path, w: int = 512, h: int = 512,
+        show: bool = False, save: bool = False,
+    ) -> tuple[np.ndarray, np.ndarray]:
         '''
         Bake normal map and ambient occlusion map for given mesh
         Output:
@@ -211,13 +222,10 @@ class AvatarDataloader(Dataset):
         bpy.ops.object.delete(use_global=False)
 
         # load mesh
-        if os.path.exists(body_path):
-            try:
-                bpy.ops.wm.ply_import(filepath=str(body_path))
-            except:
-                print("BODY_MESH", body_path, "NOT LOADED")
-        bpy.ops.wm.obj_import(filepath=str(mesh_path))
-        mesh = bpy.data.objects[-1]
+        assert body_path is not None and Path(body_path).is_file(), body_path
+        bpy.ops.wm.ply_import(filepath=str(body_path), forward_axis='NEGATIVE_Z', up_axis='Y')
+        bpy.ops.wm.obj_import(filepath=str(mesh_path), forward_axis='NEGATIVE_Z', up_axis='Y')
+        mesh = bpy.context.view_layer.objects.active
 
         # init ambient occlusion material && texture
         ao_mat = bpy.data.materials.new(name="AmbientOcclusion")
@@ -280,4 +288,3 @@ class AvatarDataloader(Dataset):
         rot_mat = R.from_rotvec(smplx['global_orient']).as_matrix()
         new_vert = torch.mm(torch.tensor(rot_mat.T, dtype=torch.float32), vert.T).T - smplx['transl']
         return new_vert
-

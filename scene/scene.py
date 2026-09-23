@@ -112,21 +112,18 @@ class Scene:
             self.gaussians.create_from_pcd(fetchPly(ply_path), self.cameras_extent)
 
             # body
-            body = o3d.io.read_triangle_mesh(self.dataloader.smplx_list[t])
-            body.remove_vertices_by_index(self.gaussians.hand_list)
+            body = self.dataloader.load_body(t)
             face_center = np.array(body.vertices)[np.array(body.triangles)].mean(-2)
             _, nn_list = neighbors.KDTree(face_center).query(self.gaussians.mesh.v.detach().cpu().numpy())
             self.gaussians.mesh.collision_faces_ids = nn_list
             self.gaussians.mesh.init_body(body)
         else:
             # body
-            body = o3d.io.read_triangle_mesh(self.dataloader.smplx_list[t-1])
-            body.remove_vertices_by_index(self.gaussians.hand_list)
+            body = self.dataloader.load_body(t-1)
             face_center = np.array(body.vertices)[np.array(body.triangles)].mean(-2)
             _, nn_list = neighbors.KDTree(face_center).query(self.gaussians.mesh.v.detach().cpu().numpy())
             self.gaussians.mesh.collision_faces_ids = nn_list
-            body = o3d.io.read_triangle_mesh(self.dataloader.smplx_list[t])
-            body.remove_vertices_by_index(self.gaussians.hand_list)
+            body = self.dataloader.load_body(t)
             self.gaussians.mesh.init_body(body)
 
             print(f"Loading Mesh at frame {self.current_frame-1:05d}")

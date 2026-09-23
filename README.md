@@ -20,11 +20,23 @@ Unfortunately, we can not share the full data used in the paper. Hence, we have 
 **Follow instructions in [ActorsHQ-for-Gaussian-Garments](https://github.com/hlimach/ActorsHQ-for-Gaussian-Garments) to convert data from ActorsHQ into our format and reconstruct the garment mesh.** Then, you can continue from the stage 2 in this repository.
 
 ## Installation
-To install the environment with all the required libraries, use the `setup.sh` script:
+The workspace uses a dedicated **gaugar** environment (Python 3.11,
+PyTorch 2.11/CUDA 13, Blender 4.4.0, COLMAP 4.2) for the RTX 5080.
+It is independent of `mpmavatar`. To create it from scratch, use `setup.sh`:
 ```bash
 bash setup.sh
 ```
-In case you encounter errors while running this script, we recommend running the lines from the script manually one by one to isolate the issue.
+The script builds PyTorch3D, Simple-KNN, the depth/alpha Gaussian rasterizer,
+and both StyleUNet CUDA extensions. COLMAP GPU option names are updated for 4.2.
+Blender's 4.4.0 wheel has an incorrect `cp39` metadata tag, so `pip check` reports
+that package despite successful Python 3.11 import. Its metadata is left intact.
+Use separate processes for the native stages; importing PyMeshLab before Blender
+in one interpreter conflicts over Embree. Native stage imports/loaders, CUDA
+forward/backward, GPU capture and COLMAP GPU SIFT passed in `gaugar`;
+[validation scope](../data/outputs/clothtransformer_gaussian_garments_validation/environment.json).
+Native frame-0 initialization has now been attempted on both generated exports;
+both stop with zero verified COLMAP matches. Training remains unrun. See the
+[current experiment status and commands](../README.md#gaussian-garments-experiments).
 
 After the installation, you can activate the environment with
 ```bash
@@ -46,6 +58,65 @@ DEFAULTS['output_root'] = '/path/to/output/folder'
 DEFAULTS['aux_root'] = '/path/to/auxilliary/data/folder'
 ```
 
+For this workspace's generated exports, use `run.py --data ... --output ...
+--stage initialize|template|register|appearance` instead. It reads the subject
+from the manifest and passes per-process paths to each native script through
+`GAUGAR_DATA_ROOT`, `GAUGAR_OUTPUT_ROOT`, and `GAUGAR_AUX_ROOT`.
+Full [commands and current blockers](../README.md#gaussian-garments-experiments)
+are in the workspace README. The original scripts still accept the defaults above.
+
+For ClothTransformer frame 0, `--stage initialize --initialization gt-mesh`
+optionally supplies the source garment mesh with existing UVs and image-sampled
+colors. Use a separate output such as `output/ClothTransformer/sim_00000_gt_init`.
+COLMAP remains the default; original initialization/registration/appearance
+scripts are unchanged. The GT option applies only to initialization, supports
+fitted and raw body exports, and uses no other cloth frames or held-out images.
+The fitted-body `sim_00000_gt_init` assets passed source geometry/UV and native
+GPU loader/render-gradient checks; full training remains unrun. Commands and
+reports are in the [workspace experiment section](../README.md#gaussian-garments-experiments).
+
+This checkout is configured for the prepared ClothTransformer `sim_00000`
+training input and separate `output/ClothTransformer` results. SMPL-X auxiliary
+assets are under `../data/GaussianGarments/auxiliary`. See the
+[generation commands](../clothtransformer_avatar/README.md#gaussian-garments-preparation).
+
+### Raw body input
+
+`run.py` accepts `--body-model raw` ClothTransformer exports. Native stages discover
+`body_mesh/` separately from calibrated camera folders. Registration retains all
+raw vertices/faces; SMPL-X hand segmentation applies only to `smplx/` inputs.
+Raw mode needs no auxiliary body models or hand labels. Appearance AO imports the
+raw body with the same axes as the garment; missing bodies fail explicitly.
+AO and normal maps are reused only when the recorded body/garment paths, file
+timestamps/sizes, and bake settings match. Existing maps without records are
+rebaked automatically. Per-frame locks serialize concurrent data-loader requests;
+first use and cache hits read the same saved PNGs. Records live in
+`stage2/<sequence>/texture/cache/`; no hashes are used.
+The export's earlier `consumer_status` records its generation-time state.
+
+Activate `gaugar` and run each stage separately from this directory:
+
+```sh
+DATA=../data/GaussianGarments/ClothTransformer/sim_00000_raw
+OUT=output/ClothTransformer/sim_00000_raw
+python run.py --data "$DATA" --output "$OUT" --stage initialize --template-frame 0
+# Continue only after native initialization succeeds and stage1/template.obj
+# has been manually UV-unwrapped to stage1/template_uv.obj.
+python run.py --data "$DATA" --output "$OUT" --stage template --template-frame 0
+python run.py --data "$DATA" --output "$OUT" --stage register --template-frame 0
+python run.py --data "$DATA" --output "$OUT" --stage appearance --template-frame 0
+```
+
+2026-09-19: two input/launcher tests, all 100 raw body meshes, collision gradients
+on the RTX 5080, and first/last train/held-out appearance loading and AO baking
+passed. Baking used a temporary synthetic UV triangle (32×32, eight samples),
+not a reconstructed garment. Both fitted export loaders also passed regression
+checks. [Collision report](../data/outputs/gaussian_garments_raw_validation/collision.json),
+[AO report](../data/outputs/gaussian_garments_raw_validation/appearance.json).
+Raw frame-0 initialization reaches COLMAP but still has zero verified matches
+across 28 pairs. No template or trained checkpoint was produced; temporary
+outputs were removed. Full registration/appearance training and ContourCraft
+physical prediction remain unrun.
 
 
 ## Creating new Gaussian garments
@@ -106,12 +177,128 @@ This will store the training checkpoint into `DEFAULTS.output_root/*subject_id*/
 ### Step 4 and creating trajectories:
 In step 4, we optimize the behavior of the garment by finetuning a ContourCraft graph neural network.
 
-To perform this step, please refer to the [ContourCraft](https://github.com/Dolorousrtur/ContourCraft/) repository and specifically to [this notebook](https://github.com/Dolorousrtur/ContourCraft/blob/main/GaussianGarments.ipynb). This notebook also shows how to simulate the garments with ContourCraft in order to create trajectory files needed to run the inference step of Gaussian Garments.
+The workspace now provides `run.py --stage simulation-fit`, backed by
+[`ContourCraft/fit_gaussian_garments.py`](../ContourCraft/fit_gaussian_garments.py).
+It uses `train.py` with `configs/finetune/base.yaml` and the authors' garment
+import/relaxation for fitted SMPL-X inputs; raw inputs use the Stage-1 garment
+reference automatically. No notebook is needed. The original GNN, losses,
+material/rest-edge optimization, and alternating CMU training batches are retained.
+See the [author notebook](https://github.com/Dolorousrtur/ContourCraft/blob/main/GaussianGarments.ipynb)
+for the original procedure.
 
-Note that you will need to follow the [installation instructions for ContourCraft](https://github.com/Dolorousrtur/ContourCraft/blob/main/INSTALL.md) before running the finetuning process.
+For a fresh installation, create the separate `ccraft` environment with
+`bash ContourCraft/setup.sh` from the workspace root, then activate `ccraft`. The setup targets RTX 5080 with
+Python 3.10 and CUDA 13. The [author auxiliary data and pretrained checkpoint](https://github.com/Dolorousrtur/ContourCraft/blob/main/INSTALL.md#download-data)
+belong in `data/ContourCraft/`. Licensed `SMPL_{MALE,FEMALE}.pkl` and
+`SMPLX_{MALE,FEMALE,NEUTRAL}.npz` models belong under
+`aux_data/body_models/{smpl,smplx}/`; provide the **AMASS CMU SMPL** motion directory
+through `--cmu-root`. The original regularization batches require it.
+
+From `Gaussian-Garments`, the launcher can stay in `gaugar`; select the separate
+`ccraft` interpreter explicitly for simulation fitting:
+
+```sh
+DATA=../data/GaussianGarments/ClothTransformer/sim_00000
+OUT=output/ClothTransformer/sim_00000
+CMU=../../datasets/AMASS/CMU
+python run.py --data "$DATA" --output "$OUT" --stage simulation-fit --template-frame 0 \
+  --simulation-python /home/ljl/miniforge3/envs/ccraft/bin/python --ccraft-data ../data/ContourCraft \
+  --cmu-root "$CMU"
+```
+
+Complete all training registrations first. Stage 3 appearance is not required
+for fitting. `--prepare-only` exports training arrays/config without garment
+relaxation or optimization and does not require `--cmu-root`; run the same command
+without that flag to fit. `--steps` sets the total budget since initialization
+(default: 1,000 combined batches; even and at least 2). `--checkpoint` selects
+the pretrained starting model. To continue fitted state, use:
+
+```sh
+python run.py --data "$DATA" --output "$OUT" --stage simulation-fit \
+  --simulation-python /home/ljl/miniforge3/envs/ccraft/bin/python --cmu-root "$CMU" \
+  --resume --save-every 1
+```
+
+`--resume` selects the latest numeric checkpoint; `--resume PATH` selects one
+explicitly. It restores network/material/rest-edge parameters, both optimizers,
+schedulers, completed step and saved random states, retaining the saved target
+unless `--steps` supplies a new total. Data iterators restart with fresh sampling;
+this does not replay the original data order exactly. New checkpoints are written
+atomically every 10 completed batches by default; `--save-every 1` saves each batch.
+Ctrl+C finishes the current sequence batch and saves before exiting. Existing
+processes started before this change retain their original stop/save behavior.
+Each launch creates a new offline W&B run. A checkpoint is required to resume;
+unsaved work cannot be recovered. Older checkpoints are rejected if newer steps
+already exist in this output.
+
+Outputs live in `$OUT/stage4/`: `smplx/train.npz` (or `body_mesh/train.npz` for raw bodies), `registrations/train.pkl`,
+`garment_dicts/`, `finetune.yaml`, and `checkpoints/step_*.pth`. Metrics are logged
+locally in W&B offline mode. Only Stage-2 training registrations supervise fitting;
+held-out observations are excluded and the validation CSV is empty. Target
+timesteps use the export FPS (25 here), while original CMU batches keep the
+authors' timestep. Full axis-angle hands, hand means, wrist poses, and chronological
+initial frames are preserved for fitted SMPL-X inputs. Raw `body_mesh/` exports
+use their original vertex correspondence and topology, without SMPL fitting,
+skinning, anatomical hand masks, or parametric garment relaxation. The garment
+reference is automatically `stage1/template_uv.obj`, following the authors'
+mesh-input convention:
+
+```sh
+DATA=../data/GaussianGarments/ClothTransformer/sim_00000_raw
+OUT=output/ClothTransformer/sim_00000_raw_gt_init
+python run.py --data "$DATA" --output "$OUT" --stage simulation-fit \
+  --simulation-python /home/ljl/miniforge3/envs/ccraft/bin/python --cmu-root "$CMU"
+```
+
+The Stage-1 reference is recorded in `preparation.json`. Original AMASS
+regularization and losses remain unchanged.
+Raw evaluation uses the same `--stage evaluate` command with the raw `DATA`/`OUT`;
+it joins body motion across the split and initializes cloth from training frames
+0/1 only. All 24 CPU conversion, native loader, evaluation-sample, and launcher
+checks passed; [all 100 raw body frames](../data/outputs/contourcraft_raw_validation/body.json)
+preserve source coordinates exactly. A [bounded GPU check](../data/outputs/contourcraft_raw_validation/runtime/report.json)
+passed one target-fitting optimizer step, checkpoint reload, and four prediction
+steps on real registrations. Full alternating AMASS fitting and held-out accuracy
+evaluation remain unrun.
+
+2026-09-20: `ccraft` is installed; author pretrained/auxiliary assets and licensed
+body-model links are ready in `data/ContourCraft`. Ten launcher/conversion tests
+passed. [GPU runtime checks](../data/outputs/contourcraft_validation/runtime.json)
+passed, including actual triangle collisions and strict author checkpoint loading;
+[conversion checks](../data/outputs/contourcraft_validation/conversion.json) preserve
+the existing fitted body geometry. AMASS CMU is now installed at
+`../../datasets/AMASS/CMU`; all 46 required motion files passed schema checks.
+The production `stage4/` inputs are prepared from all 80 registered training
+frames. Full fitting remains unrun.
 
 
 ### Inference
+For prepared ClothTransformer/D-Garment experiments, use the calibrated evaluation
+adapter in `gaugar` after ContourCraft fitting:
+
+```sh
+python run.py --data ../data/GaussianGarments/ClothTransformer/sim_00000 \
+  --output output/ClothTransformer/sim_00000 --stage evaluate \
+  --simulation-python /home/ljl/miniforge3/envs/ccraft/bin/python
+```
+
+Add `--evaluate-from-start` to render frame 0 through the end instead of only the
+held-out suffix. Both ranges use continuous simulation initialized with the first
+two training registrations, frozen fitted parameters, and future body motion only.
+The default checkpoints are the highest saved ContourCraft step and completed
+appearance epoch; `--checkpoint PATH` and `--appearance-checkpoint PATH` override them.
+Both fitted SMPL-X and raw-body exports are supported. For raw evaluation, use
+the raw `DATA`/`OUT` paths above; texture baking uses the same raw collider.
+
+Each fresh `evaluation/{held_out,full_sequence}/` destination contains predictions
+and separate `gt_lighting/<camera>/` and `fitted_appearance/<camera>/` trees with
+prediction/reference PNGs and `pred.mp4`, `gt.mp4`, `comparison.mp4` at source FPS.
+Comparison layout is prediction left, capture GT right. Capture materials/lights
+and fitted Gaussian appearance are rendered on the same predicted garment;
+the visible body is the original source surface. Two-frame/eight-camera renderer
+checks passed; full fitted simulation evaluation awaits a ContourCraft checkpoint.
+
+For the authors' standalone trajectory preview:
 To render a dynamic sequence of Gaussian garment geometries, use `inference.py` script:
 ```bash
 python inference.py --traj_path *trajectory_file*.pkl --output_path *directory_to_store_renders*

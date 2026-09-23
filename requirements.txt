@@ -1,4 +1,5 @@
-opencv-python
+numpy==1.26.4
+opencv-python==4.11.0.86
 huepy
 munch
 pyacvd
@@ -8,7 +9,16 @@ open3d
 roma
 einops
 smplx
-fused
-pymeshlab
+pymeshlab==2023.12.post3
 aitviewer
 wandb
+bpy==4.4.0
+scipy
+Pillow
+tqdm
+scikit-learn
+iopath
+pyvista
+vtk
+rtree
+# fused and upfirdn2d are built locally by setup.sh, not installed from PyPI.

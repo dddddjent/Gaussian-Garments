@@ -9,6 +9,7 @@ from pathlib import Path
 
 from utils.io_utils import load_masked_image
 from .defaults import DEFAULTS
+from .body_input import camera_directories
 
 def rotmat2qvec(R):
     Rxx, Ryx, Rzx, Rxy, Ryy, Rzy, Rxz, Ryz, Rzz = R.flat
@@ -72,7 +73,7 @@ class PrepareDataset:
         Read the images, labels, and masks and writes them to the output directory within respective folders. 
         """
 
-        cam_paths = sorted([path for path in self.source_root.iterdir() if path.is_dir() and path.name != 'smplx'])
+        cam_paths = camera_directories(self.source_root)
         frame_idx = self.frame_idx
         
         cam_num = len(cam_paths)
@@ -106,7 +107,7 @@ class PrepareDataset:
             
             cam_name = _cam.name
 
-            image = Image.fromarray(np.array(masked_img, dtype=np.byte), "RGB")
+            image = Image.fromarray(np.array(masked_img, dtype=np.uint8), "RGB")
             image.save(os.path.join(self._img_out, cam_name+'.png'))
             mask = (mask * 255).astype(np.uint8)[..., 0]
             mask = Image.fromarray(mask)

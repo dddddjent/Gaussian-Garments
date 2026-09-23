@@ -3,6 +3,9 @@ import json
 import numpy as np
 from PIL import Image
 import logging
+from pathlib import Path
+import sqlite3
+import struct
 
 import socket
 import open3d as o3d
@@ -23,7 +26,36 @@ def remove_seperated_face(mesh):
     mesh.remove_unreferenced_vertices()
     return mesh
 
-def COLMAP_recon(_path, use_gpu=True, skip_dense=False):
+def sync_colmap_calibration(root: Path) -> None:
+    """Match known camera poses to database IDs and install exact intrinsics."""
+    camera_path, image_path = root / 'txt/cameras.txt', root / 'txt/images.txt'
+    cameras = {line.split()[0]: line.split() for line in camera_path.read_text().splitlines()}
+    images = [line.split() for line in image_path.read_text().splitlines() if line.strip()]
+    connection = sqlite3.connect(root / 'database.db')
+    rows = dict((name, (image_id, camera_id)) for image_id, name, camera_id in
+                connection.execute('SELECT image_id, name, camera_id FROM images'))
+    output_cameras, output_images = [], []
+    for pose in images:
+        calibration = cameras[pose[8]].copy()
+        assert calibration[1] == 'PINHOLE', calibration
+        image_id, camera_id = rows[pose[9]]
+        calibration[0] = str(camera_id)
+        pose[0], pose[8] = str(image_id), str(camera_id)
+        intrinsics = [float(value) for value in calibration[4:]]
+        assert len(intrinsics) == 4
+        connection.execute('UPDATE cameras SET model=1, width=?, height=?, params=?, '
+                           'prior_focal_length=1 WHERE camera_id=?',
+                           (int(calibration[2]), int(calibration[3]),
+                            struct.pack('<4d', *intrinsics), camera_id))
+        output_cameras.append(' '.join(calibration) + '\n')
+        output_images.append(' '.join(pose) + '\n\n')
+    connection.commit()
+    connection.close()
+    camera_path.write_text(''.join(output_cameras))
+    image_path.write_text(''.join(output_images))
+
+
+def COLMAP_recon(_path: str | Path, use_gpu: bool = True, skip_dense: bool = False) -> None:
     """
     Runs the COLMAP pipeline on the given source path.
     It saves the final mesh as 'template.obj' in the source path.
@@ -45,21 +77,33 @@ def COLMAP_recon(_path, use_gpu=True, skip_dense=False):
                         f"--database_path {_path}/database.db " +\
                         f"--image_path {_images} " +\
                         f"--ImageReader.mask_path {_masks} " +\
-                        f"--SiftExtraction.use_gpu {use_gpu} "
+                        f"--ImageReader.camera_model PINHOLE " +\
+                        f"--FeatureExtraction.use_gpu {use_gpu} "
     exit_code = os.system(feat_extracton_cmd)
     if exit_code != 0:
         logging.error(f"Feature extraction failed with code {exit_code}. Exiting.")
         exit(exit_code)
 
+    sync_colmap_calibration(Path(_path))
+
     ## Feature matching
     feat_matching_cmd = "colmap exhaustive_matcher " +\
                        f"--database_path {_path}/database.db " +\
-                       f"--SiftMatching.use_gpu {use_gpu} " +\
+                       f"--FeatureMatching.use_gpu {use_gpu} " +\
                        f"--ExhaustiveMatching.block_size 200 "
     exit_code = os.system(feat_matching_cmd)
     if exit_code != 0:
         logging.error(f"Feature matching failed with code {exit_code}. Exiting.")
         exit(exit_code)
+
+    connection = sqlite3.connect(Path(_path) / 'database.db')
+    verified_matches = connection.execute(
+        'SELECT COALESCE(SUM(rows), 0) FROM two_view_geometries').fetchone()[0]
+    connection.close()
+    assert verified_matches > 0, (
+        'COLMAP found zero geometrically verified matches in the template views. '
+        'Native image reconstruction cannot continue from this frame; '
+        'inspect the capture before changing the reconstruction protocol.')
 
     ## point triangulate
     triangulate_cmd = "colmap point_triangulator " +\

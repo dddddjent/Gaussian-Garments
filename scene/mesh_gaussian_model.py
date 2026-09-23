@@ -73,9 +73,6 @@ class MeshGaussianModel(GaussianModel):
 
         # init mesh
         self.mesh = MeshModel(tem_dict['vertices'], tem_dict['faces'])
-        _hand = Path(DEFAULTS.aux_root) / "smplx" / "smplx_vert_segmentation.json"
-        hand_verts = json.load(open(_hand, 'r'))
-        self.hand_list = np.array([v for k, verts in hand_verts.items() for v in verts if 'hand' in k.lower()])
 
        
         # init params

@@ -29,6 +29,8 @@ from scene.gaussian_model import BasicPointCloud
 from sklearn import neighbors
 from arguments import ModelParams
 from tqdm import tqdm
+from utils.body_input import camera_directories, body_mesh_paths, load_collision_body
+import open3d as o3d
 
 class CameraInfo():
     def __init__(self, uid, R, T, FovY, FovX, fx, fy, cx, cy,
@@ -59,7 +61,7 @@ class Dataloader():
         seq_path = Path(DEFAULTS.data_root) / args.subject / args.sequence
 
         # locate camera
-        self.cam_paths = sorted([path for path in seq_path.iterdir() if path.is_dir() and path.name != 'smplx'])
+        self.cam_paths = camera_directories(seq_path)
         self.camera_params = json.load(open(os.path.join(seq_path, 'cameras.json'), 'r'))
         self.cam_num = len(self.cam_paths)
         # frame info
@@ -104,8 +106,10 @@ class Dataloader():
         # self._gm_names = [gm.name for gm in gm_files]
         # self._fg_names = [fg.name for fg in fg_files]
         self._len = len(self._img_names[self.cam_paths[0].name])
-        # smplx info
-        self.smplx_list = sorted(glob.glob(os.path.join(seq_path, "smplx/*.ply")))
+        self.body_mesh_paths = body_mesh_paths(seq_path, self._len)
+
+    def load_body(self, frame: int) -> o3d.geometry.TriangleMesh:
+        return load_collision_body(self.body_mesh_paths[frame], Path(DEFAULTS.aux_root))
 
     def __len__(self,):
         return self._len
@@ -144,7 +148,7 @@ class Dataloader():
             fx, fy = intrinsic[0, 0], intrinsic[1, 1]
             cx, cy = intrinsic[:2, 2]
             FovY, FovX = focal2fov(fy, height), focal2fov(fx, width)
-            image = Image.fromarray(np.array(masked_img, dtype=np.byte), "RGB")
+            image = Image.fromarray(np.array(masked_img, dtype=np.uint8), "RGB")
                 
 
             # append camera_info        
@@ -155,5 +159,3 @@ class Dataloader():
         self.cam_info = sorted(camera_info_list.copy(), key = lambda x : x.image_name)
     
     
-
-
