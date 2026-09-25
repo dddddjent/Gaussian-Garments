@@ -1,4 +1,5 @@
 import os
+from functools import partial
 from pathlib import Path
 import torch
 import socket
@@ -23,11 +24,15 @@ from argparse import ArgumentParser
 from arguments import PipelineParams, OptimizationParams
 import torch.nn.functional as F
 from aitviewer.headless import HeadlessRenderer
+import moderngl
 from aitviewer.scene.camera import PinholeCamera
 from aitviewer.utils import path
 from aitviewer.renderables.meshes import Meshes
 from aitviewer.renderables.lines import Lines
 from aitviewer.renderables.spheres import Spheres
+
+# HeadlessRenderer defaults to X11, which is unavailable on Delta batch nodes.
+moderngl.create_standalone_context = partial(moderngl.create_standalone_context, backend="egl")
 
 def rm_dimension(data: dict):
     for k, v in data.items():

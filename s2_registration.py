@@ -1,4 +1,5 @@
 import os
+from functools import partial
 from pathlib import Path
 from scene.cross_scene import crossScene
 import torch
@@ -19,6 +20,10 @@ import torch.nn.functional as F
 from aitviewer.scene.camera import PinholeCamera
 from aitviewer.renderables.meshes import Meshes
 from aitviewer.headless import HeadlessRenderer
+import moderngl
+
+# HeadlessRenderer defaults to X11, which is unavailable on Delta batch nodes.
+moderngl.create_standalone_context = partial(moderngl.create_standalone_context, backend="egl")
 
 def prepare_output_and_logger(args):    
     if not args.subject_out:
