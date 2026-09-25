@@ -11,7 +11,7 @@ import sys
 from typing import Any
 
 # Public template command (gaugar environment, from Gaussian-Garments):
-# python run.py --data ../data/GaussianGarments/ClothTransformer/sim_00000 --output output/ClothTransformer/sim_00000 --stage evaluate --simulation-python /home/ljl/miniforge3/envs/ccraft/bin/python --evaluate-from-start
+# python run.py --data ../data/GaussianGarments/ClothTransformer/sim_00000 --output output/ClothTransformer/sim_00000 --stage evaluate --evaluate-from-start
 
 
 def select_checkpoint(output: Path, explicit: Path | None) -> Path:

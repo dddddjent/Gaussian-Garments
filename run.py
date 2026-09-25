@@ -22,7 +22,16 @@ from utils.body_input import body_directory, body_mesh_paths
 # Use --resume [PATH] instead of --checkpoint to resume a fitted checkpoint; omitted PATH selects latest.
 # Raw-body fitting uses stage1/template_uv.obj as the garment rest reference.
 # Evaluation (gaugar environment; omit --evaluate-from-start for held-out frames):
-# python run.py --data ../data/GaussianGarments/ClothTransformer/sim_00000 --output output/ClothTransformer/sim_00000 --stage evaluate --simulation-python /home/ljl/miniforge3/envs/ccraft/bin/python --evaluate-from-start
+# python run.py --data ../data/GaussianGarments/ClothTransformer/sim_00000 --output output/ClothTransformer/sim_00000 --stage evaluate --evaluate-from-start
+
+
+def conda_environment_python(name: str) -> Path:
+    """Resolve an interpreter from Conda's configured environment directories."""
+    result = subprocess.run(['conda', 'env', 'list', '--json'], check=True, capture_output=True, text=True)
+    environments = json.loads(result.stdout)['envs']
+    matches = [Path(path) / 'bin/python' for path in environments if Path(path).name == name]
+    assert len(matches) == 1 and matches[0].is_file(), f'Expected one installed {name} environment'
+    return matches[0]
 
 
 def run_simulation(command: list[str], cwd: Path) -> None:
@@ -101,7 +110,7 @@ def main() -> None:
     parser.add_argument('--aux-root', type=Path,
                         default=Path(__file__).resolve().parents[1] / 'data/GaussianGarments/auxiliary')
     parser.add_argument('--simulation-python', type=Path,
-                        help='Simulation fitting/evaluation: interpreter from the separate ContourCraft environment.')
+                        help='Simulation fitting/evaluation: interpreter from ccraft; defaults to the Conda environment named ccraft.')
     parser.add_argument('--contourcraft-root', type=Path,
                         default=Path(__file__).resolve().parents[1] / 'ContourCraft')
     parser.add_argument('--ccraft-data', type=Path,
@@ -125,6 +134,8 @@ def main() -> None:
     parser.add_argument('--prepare-only', action='store_true', help='Simulation fitting: convert data without fitting.')
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
+    if args.stage in ('simulation-fit', 'evaluate'):
+        args.simulation_python = args.simulation_python or conda_environment_python('ccraft')
     assert args.stage == 'evaluate' or not (args.evaluate_from_start or args.appearance_checkpoint), (
         '--evaluate-from-start and --appearance-checkpoint require --stage evaluate.')
     assert args.stage == 'simulation-fit' or not args.prepare_only, '--prepare-only requires --stage simulation-fit.'

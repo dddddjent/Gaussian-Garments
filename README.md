@@ -21,7 +21,7 @@ Unfortunately, we can not share the full data used in the paper. Hence, we have 
 
 ## Installation
 The workspace uses a dedicated **gaugar** environment (Python 3.11,
-PyTorch 2.11/CUDA 13, Blender 4.4.0, COLMAP 4.2) for the RTX 5080.
+PyTorch 2.11/CUDA 13, Blender 4.4.0, COLMAP 4.2) for A100, A40, H200, and RTX 5080.
 It is independent of `mpmavatar`. To create it from scratch, use `setup.sh`:
 ```bash
 bash setup.sh
@@ -187,22 +187,22 @@ See the [author notebook](https://github.com/Dolorousrtur/ContourCraft/blob/main
 for the original procedure.
 
 For a fresh installation, create the separate `ccraft` environment with
-`bash ContourCraft/setup.sh` from the workspace root, then activate `ccraft`. The setup targets RTX 5080 with
+`bash ContourCraft/setup.sh` from the workspace root, then activate `ccraft`. The setup targets all four GPUs with
 Python 3.10 and CUDA 13. The [author auxiliary data and pretrained checkpoint](https://github.com/Dolorousrtur/ContourCraft/blob/main/INSTALL.md#download-data)
 belong in `data/ContourCraft/`. Licensed `SMPL_{MALE,FEMALE}.pkl` and
 `SMPLX_{MALE,FEMALE,NEUTRAL}.npz` models belong under
 `aux_data/body_models/{smpl,smplx}/`; provide the **AMASS CMU SMPL** motion directory
 through `--cmu-root`. The original regularization batches require it.
 
-From `Gaussian-Garments`, the launcher can stay in `gaugar`; select the separate
-`ccraft` interpreter explicitly for simulation fitting:
+From `Gaussian-Garments`, the launcher stays in `gaugar` and finds the separate
+`ccraft` Conda interpreter for simulation fitting:
 
 ```sh
 DATA=../data/GaussianGarments/ClothTransformer/sim_00000
 OUT=output/ClothTransformer/sim_00000
 CMU=../../datasets/AMASS/CMU
 python run.py --data "$DATA" --output "$OUT" --stage simulation-fit --template-frame 0 \
-  --simulation-python /home/ljl/miniforge3/envs/ccraft/bin/python --ccraft-data ../data/ContourCraft \
+  --ccraft-data ../data/ContourCraft \
   --cmu-root "$CMU"
 ```
 
@@ -214,8 +214,7 @@ without that flag to fit. `--steps` sets the total budget since initialization
 the pretrained starting model. To continue fitted state, use:
 
 ```sh
-python run.py --data "$DATA" --output "$OUT" --stage simulation-fit \
-  --simulation-python /home/ljl/miniforge3/envs/ccraft/bin/python --cmu-root "$CMU" \
+python run.py --data "$DATA" --output "$OUT" --stage simulation-fit --cmu-root "$CMU" \
   --resume --save-every 1
 ```
 
@@ -246,8 +245,7 @@ mesh-input convention:
 ```sh
 DATA=../data/GaussianGarments/ClothTransformer/sim_00000_raw
 OUT=output/ClothTransformer/sim_00000_raw_gt_init
-python run.py --data "$DATA" --output "$OUT" --stage simulation-fit \
-  --simulation-python /home/ljl/miniforge3/envs/ccraft/bin/python --cmu-root "$CMU"
+python run.py --data "$DATA" --output "$OUT" --stage simulation-fit --cmu-root "$CMU"
 ```
 
 The Stage-1 reference is recorded in `preparation.json`. Original AMASS
@@ -278,8 +276,7 @@ adapter in `gaugar` after ContourCraft fitting:
 
 ```sh
 python run.py --data ../data/GaussianGarments/ClothTransformer/sim_00000 \
-  --output output/ClothTransformer/sim_00000 --stage evaluate \
-  --simulation-python /home/ljl/miniforge3/envs/ccraft/bin/python
+  --output output/ClothTransformer/sim_00000 --stage evaluate
 ```
 
 Add `--evaluate-from-start` to render frame 0 through the end instead of only the
