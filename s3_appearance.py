@@ -1,5 +1,4 @@
 import os
-from functools import partial
 from pathlib import Path
 import torch
 import socket
@@ -23,16 +22,6 @@ from utils.sh_utils import SH2RGB
 from argparse import ArgumentParser
 from arguments import PipelineParams, OptimizationParams
 import torch.nn.functional as F
-from aitviewer.headless import HeadlessRenderer
-import moderngl
-from aitviewer.scene.camera import PinholeCamera
-from aitviewer.utils import path
-from aitviewer.renderables.meshes import Meshes
-from aitviewer.renderables.lines import Lines
-from aitviewer.renderables.spheres import Spheres
-
-# HeadlessRenderer defaults to X11, which is unavailable on Delta batch nodes.
-moderngl.create_standalone_context = partial(moderngl.create_standalone_context, backend="egl")
 
 def rm_dimension(data: dict):
     for k, v in data.items():
@@ -93,13 +82,6 @@ if __name__ == "__main__":
     # # Initialize system state (RNG)
     torch.manual_seed(31359)
     np.random.seed(31359)
-    ############ DEBUG ############
-    w, h = 940, 1280
-    global viewer, test_id
-    viewer = HeadlessRenderer(size=(2*w, 2*h))
-    test_id = 0
-    ############ DEBUG ############
-
     # build components
     dataloader = torch.utils.data.DataLoader(AvatarDataloader(args), batch_size=1, 
                                              shuffle=args.shuffle, num_workers=8)
@@ -207,7 +189,6 @@ if __name__ == "__main__":
                     os.makedirs(_render, exist_ok=True)
                     render_path = _render / f"ep{epoch:03d}_iter{iter:06d}_{frame_data['current_seq']}_frame{frame_data['current_frame']:04d}.png"
                     container.save(render_path)
-                    test_id += 1
             ############ SAVE RENDERS ############
 
         progress_bar.close()
