@@ -37,18 +37,33 @@ def finish_branch(data: Path, evaluation: Path, branch: str, manifest: dict[str,
                   frames: list[int], details: dict[str, Any]) -> None:
     for camera in manifest['camera_ids']:
         destination = evaluation / branch / camera
-        (destination / 'gt').mkdir()
+        (destination / 'gt').mkdir(exist_ok=True)
         for frame in frames:
             reference = data / 'capture/rgbs' / camera / f'{camera}_rgb{frame:06d}.png'
             assert reference.is_file(), reference
             shutil.copyfile(reference, destination / 'gt' / f'{frame:04d}.png')
-        encode_comparison(destination, frames, manifest['fps'])
+        encode_comparison(destination, frames, manifest['fps'], atomic=True)
     (evaluation / branch / 'manifest.json').write_text(json.dumps({
         'status': 'complete', 'frame_ids': frames, 'camera_ids': manifest['camera_ids'],
         'fps': manifest['fps'], 'geometry': str(evaluation / 'predictions.npz'),
         'reference': 'Original capture RGB', 'video_layout': 'prediction left, reference right',
         **details,
     }, indent=2) + '\n')
+
+
+def finish_gt_lighting_images(data: Path, evaluation: Path, manifest: dict[str, Any],
+                              frames: list[int]) -> None:
+    """Finish encoding after GT lighting and body-plate rendering completed."""
+    for camera in manifest['camera_ids']:
+        for frame in frames:
+            for path in (evaluation / 'gt_lighting' / camera / 'pred' / f'{frame:04d}.png',
+                         evaluation / 'body_plate' / camera / f'{frame:04d}.png'):
+                assert path.is_file(), f'Incomplete saved render: {path}'
+    finish_branch(data, evaluation, 'gt_lighting', manifest, frames, {
+        'appearance': 'Saved capture materials, lighting and color management',
+        'body': 'Original source body surface; predicted garment topology',
+        'encoding': 'Resumed from existing GT-lighting and body-plate images',
+    })
 
 
 def gt_lighting(data: Path, evaluation: Path, manifest: dict[str, Any],
@@ -211,7 +226,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('data', 'output', 'evaluation', 'appearance-checkpoint'):
         parser.add_argument(f'--{name}', type=Path, required=True)
-    parser.add_argument('--branch', choices=('gt-lighting', 'textures', 'fitted-appearance'), required=True)
+    parser.add_argument('--branch', choices=('gt-lighting', 'gt-lighting-videos', 'textures', 'fitted-appearance'), required=True)
     args = parser.parse_args()
     data, output, evaluation = args.data.resolve(), args.output.resolve(), args.evaluation.resolve()
     manifest = read_json(data / 'manifest.json')
@@ -221,7 +236,9 @@ def main() -> None:
         frames, vertices, faces = prediction['frame_ids'].tolist(), prediction['vertices'], prediction['faces']
     assert frames in (manifest['evaluation_frame_ids'], manifest['frame_ids'])
     assert np.isfinite(vertices).all()
-    if args.branch == 'gt-lighting':
+    if args.branch == 'gt-lighting-videos':
+        finish_gt_lighting_images(data, evaluation, manifest, frames)
+    elif args.branch == 'gt-lighting':
         gt_lighting(data, evaluation, manifest, frames, vertices, faces)
     elif args.branch == 'textures':
         bake_textures(data, output, evaluation, manifest, frames, vertices, faces)

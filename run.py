@@ -124,6 +124,9 @@ def main() -> None:
                         help='Evaluation: stage3 net.pt (default: highest completed epoch).')
     parser.add_argument('--evaluate-from-start', action='store_true',
                         help='Evaluation: render all frames, including frame 0; default is the held-out suffix.')
+    parser.add_argument('--evaluate-from-images', action='store_true',
+                        help='Evaluation: reuse the saved rollout and complete GT-lighting/body-plate images; '
+                             'encode videos, then run texture baking and fitted appearance.')
     parser.add_argument('--steps', type=int,
                         help='Simulation fitting: total combined batches since step 45000, even and >= 2; '
                              'fresh default 1000, resume default is the saved target.')
@@ -136,8 +139,9 @@ def main() -> None:
     args = parser.parse_args()
     if args.stage in ('simulation-fit', 'evaluate'):
         args.simulation_python = args.simulation_python or conda_environment_python('ccraft')
-    assert args.stage == 'evaluate' or not (args.evaluate_from_start or args.appearance_checkpoint), (
-        '--evaluate-from-start and --appearance-checkpoint require --stage evaluate.')
+    assert args.stage == 'evaluate' or not (
+        args.evaluate_from_start or args.evaluate_from_images or args.appearance_checkpoint), (
+        '--evaluate-from-start, --evaluate-from-images and --appearance-checkpoint require --stage evaluate.')
     assert args.stage == 'simulation-fit' or not args.prepare_only, '--prepare-only requires --stage simulation-fit.'
     assert args.stage == 'simulation-fit' or (args.resume is None and args.save_every is None), (
         '--resume and --save-every require --stage simulation-fit.')
@@ -158,6 +162,7 @@ def main() -> None:
         return
     if args.stage == 'evaluate':
         from evaluation_runner import evaluate
+        args.render_python = conda_environment_python('gaugar')
         evaluate(args, manifest, root, output)
         return
     expected_body_dir = 'body_mesh' if body_model == 'raw' else 'smplx'
